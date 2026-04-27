@@ -35,7 +35,25 @@ def main():
         "running": True,
         "restart_requested": False,
         "env": None,
+        "follow_enabled": True,
     }
+
+    def apply_follow_mode():
+        env = state["env"]
+        if env is None:
+            return
+        viewer = env.scene.viewer
+        if state["follow_enabled"]:
+            viewer.follow_entity(env.robot, fixed_axis=(None, None, None), smoothing=0.15, fix_orientation=False)
+            gs.logger.info("Camera follow enabled")
+        else:
+            # Viewer currently has no public unfollow API; clear follow state explicitly.
+            viewer._followed_entity = None
+            viewer._follow_fixed_axis = None
+            viewer._follow_smoothing = None
+            viewer._follow_fix_orientation = None
+            viewer._follow_lookat = None
+            gs.logger.info("Camera follow disabled")
 
     def toggle_motion_pause():
         env = state["env"]
@@ -52,6 +70,10 @@ def main():
         state["running"] = False
         gs.logger.info("Exiting evaluation")
 
+    def toggle_camera_follow():
+        state["follow_enabled"] = not state["follow_enabled"]
+        apply_follow_mode()
+
     with torch.no_grad():
         while state["running"]:
             env = Go2Env(
@@ -65,9 +87,12 @@ def main():
             state["env"] = env
             state["restart_requested"] = False
 
+            apply_follow_mode()
+
             env.scene.viewer.register_keybinds(
                 Keybind("toggle_pause_motion", Key.F5, KeyAction.RELEASE, callback=toggle_motion_pause),
                 Keybind("restart_sim", Key.F6, KeyAction.RELEASE, callback=restart_simulation),
+                Keybind("toggle_camera_follow", Key.F7, KeyAction.RELEASE, callback=toggle_camera_follow),
                 Keybind("quit_eval", Key.ESCAPE, KeyAction.RELEASE, callback=stop_program),
             )
 
