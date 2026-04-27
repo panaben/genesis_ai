@@ -7,3 +7,6 @@
 [submodule "genesis/ext/ParticleMesher"]
 	path = genesis/ext/ParticleMesher
 	url = https://github.com/ACMLCZH/ParticleMesher
+[submodule "examples/locomotion/sdk"]
+	path = examples/locomotion/sdk
+	url = https://github.com/unitreerobotics/unitree_sdk2_python.git
