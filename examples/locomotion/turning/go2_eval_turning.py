@@ -38,6 +38,7 @@ def main():
     log_dir = f"logs/{args.exp_name}"
     with open(f"logs/{args.exp_name}/cfgs.pkl", "rb") as f:
         env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg = pickle.load(f)
+    env_cfg["disable_timeout_reset"] = True
     reward_cfg["reward_scales"] = {}
 
     # Widen command ranges for manual backward/turn commands during evaluation.

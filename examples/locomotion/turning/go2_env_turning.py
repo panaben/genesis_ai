@@ -22,6 +22,7 @@ class Go2Env:
 
         self.simulate_action_latency = True  # there is a 1 step latency on real robot
         self.dt = 0.02  # control frequency on real robot is 50hz
+        self.disable_timeout_reset = bool(env_cfg.get("disable_timeout_reset", False))
         self.max_episode_length = math.ceil(env_cfg["episode_length_s"] / self.dt)
 
         self.env_cfg = env_cfg
@@ -249,13 +250,17 @@ class Go2Env:
             self.extras["time_outs"] = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
         else:
             # check termination and reset
-            self.reset_buf = self.episode_length_buf > self.max_episode_length
-            self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
-            self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
-            self.reset_buf |= self.scene.rigid_solver.get_error_envs_mask()
+            timeout_mask = self.episode_length_buf > self.max_episode_length
+            pitch_mask = torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
+            roll_mask = torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
+            solver_mask = self.scene.rigid_solver.get_error_envs_mask()
 
-            # Compute timeout
-            self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
+            if self.disable_timeout_reset:
+                self.reset_buf = pitch_mask | roll_mask | solver_mask
+                self.extras["time_outs"] = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
+            else:
+                self.reset_buf = timeout_mask | pitch_mask | roll_mask | solver_mask
+                self.extras["time_outs"] = timeout_mask.to(dtype=gs.tc_float)
 
             # Reset environment if necessary
             self._reset_idx(self.reset_buf)
