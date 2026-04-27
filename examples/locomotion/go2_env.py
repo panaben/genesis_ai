@@ -13,7 +13,7 @@ def gs_rand(lower, upper, batch_shape):
 
 
 class Go2Env:
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False):
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False, record=False):
         self.num_envs: int = num_envs
         self.num_actions = env_cfg["num_actions"]
         self.cfg = env_cfg
@@ -31,6 +31,7 @@ class Go2Env:
 
         self.obs_scales: dict[str, float] = obs_cfg["obs_scales"]
         self.reward_scales: dict[str, float] = reward_cfg["reward_scales"]
+        self.is_motion_paused = False
 
         # create scene
         self.scene = gs.Scene(
@@ -72,6 +73,15 @@ class Go2Env:
             ),
         )
 
+        # add camera for recording
+        if record:
+            self.cam = self.scene.add_camera(
+                res=(1280, 720),
+                pos=(3.0, 0.0, 1.5),
+                lookat=(0.0, 0.0, 0.3),
+                fov=40,
+                GUI=False,
+            )
         # build
         self.scene.build(n_envs=num_envs)
 
@@ -148,21 +158,40 @@ class Go2Env:
         self.reset()
 
     def _resample_commands(self, envs_idx):
+        if self.is_motion_paused:
+            if envs_idx is None:
+                self.commands.zero_()
+            else:
+                self.commands.masked_fill_(envs_idx[:, None], 0.0)
+            return
+
         commands = gs_rand(*self.commands_limits, (self.num_envs,))
         if envs_idx is None:
             self.commands.copy_(commands)
         else:
             torch.where(envs_idx[:, None], commands, self.commands, out=self.commands)
 
+    def set_motion_paused(self, paused: bool):
+        self.is_motion_paused = paused
+        if paused:
+            self.commands.zero_()
+            self.actions.zero_()
+            self.last_actions.zero_()
+
     def step(self, actions):
-        self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
-        exec_actions = self.last_actions if self.simulate_action_latency else self.actions
+        if self.is_motion_paused:
+            self.actions.zero_()
+            exec_actions = self.actions
+        else:
+            self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
+            exec_actions = self.last_actions if self.simulate_action_latency else self.actions
         target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
         self.robot.control_dofs_position(target_dof_pos[:, self.actions_dof_idx], slice(6, 18))
         self.scene.step()
 
         # update buffers
-        self.episode_length_buf += 1
+        if not self.is_motion_paused:
+            self.episode_length_buf += 1
         self.base_pos = self.robot.get_pos()
         self.base_quat = self.robot.get_quat()
         self.base_euler = quat_to_xyz(
@@ -183,19 +212,26 @@ class Go2Env:
             self.episode_sums[name] += rew
 
         # resample commands
-        self._resample_commands(self.episode_length_buf % int(self.env_cfg["resampling_time_s"] / self.dt) == 0)
+        if not self.is_motion_paused:
+            self._resample_commands(self.episode_length_buf % int(self.env_cfg["resampling_time_s"] / self.dt) == 0)
+        else:
+            self.commands.zero_()
 
-        # check termination and reset
-        self.reset_buf = self.episode_length_buf > self.max_episode_length
-        self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
-        self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
-        self.reset_buf |= self.scene.rigid_solver.get_error_envs_mask()
+        if self.is_motion_paused:
+            self.reset_buf.fill_(False)
+            self.extras["time_outs"] = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
+        else:
+            # check termination and reset
+            self.reset_buf = self.episode_length_buf > self.max_episode_length
+            self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
+            self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
+            self.reset_buf |= self.scene.rigid_solver.get_error_envs_mask()
 
-        # Compute timeout
-        self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
+            # Compute timeout
+            self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
 
-        # Reset environment if necessary
-        self._reset_idx(self.reset_buf)
+            # Reset environment if necessary
+            self._reset_idx(self.reset_buf)
 
         # update observations
         self._update_observation()
