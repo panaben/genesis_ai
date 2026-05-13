@@ -7,3 +7,6 @@
 [submodule "genesis/ext/ParticleMesher"]
 	path = genesis/ext/ParticleMesher
 	url = https://github.com/ACMLCZH/ParticleMesher
+[submodule "third_party/unitree_legged_sdk"]
+	path = third_party/unitree_legged_sdk
+	url = https://github.com/unitreerobotics/unitree_legged_sdk
