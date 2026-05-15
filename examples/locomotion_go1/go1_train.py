@@ -2,6 +2,7 @@ import argparse
 import os
 import pickle
 import shutil
+import tomllib
 from importlib import metadata
 
 try:
@@ -139,20 +140,92 @@ def get_cfgs():
     return env_cfg, obs_cfg, reward_cfg, command_cfg
 
 
+def _apply_train_env(
+    path: str,
+    env_cfg: dict,
+    obs_cfg: dict,
+    reward_cfg: dict,
+    command_cfg: dict,
+) -> dict:
+    """Load a TOML env file and override cfg dicts in-place.
+
+    Supported sections:
+        [env_cfg]       → env_cfg  (kp, kd, termination thresholds, etc.)
+        [obs_scales]    → obs_cfg["obs_scales"]
+        [reward_scales] → reward_cfg["reward_scales"]
+        [command_cfg]   → command_cfg  (velocity ranges, etc.)
+        [training]      → returned as dict (resume_ckpt, num_envs, max_iterations)
+
+    Only keys present in the TOML file are updated; all other values keep
+    their defaults from get_cfgs().
+
+    Returns:
+        The [training] section dict (may be empty if the section is absent).
+    """
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    for key, val in data.get("env_cfg", {}).items():
+        env_cfg[key] = val
+
+    for key, val in data.get("obs_scales", {}).items():
+        obs_cfg["obs_scales"][key] = val
+
+    for key, val in data.get("reward_scales", {}).items():
+        reward_cfg["reward_scales"][key] = val
+
+    for key, val in data.get("command_cfg", {}).items():
+        command_cfg[key] = val
+
+    return data.get("training", {})
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go1-walking")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
     parser.add_argument("--max_iterations", type=int, default=101)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--env_file",
+        type=str,
+        default=None,
+        help="Path to a TOML file that overrides training configs (env_cfg, obs_scales, "
+             "reward_scales, command_cfg, training).  When absent, defaults are used as-is.",
+    )
     args = parser.parse_args()
 
     log_dir = f"logs/{args.exp_name}"
     env_cfg, obs_cfg, reward_cfg, command_cfg = get_cfgs()
     train_cfg = get_train_cfg(args.exp_name)
 
-    if os.path.exists(log_dir):
-        shutil.rmtree(log_dir)
+    # ------------------------------------------------------------------
+    # Apply env_file overrides (optional)
+    # ------------------------------------------------------------------
+    resume_ckpt = None
+    num_envs    = args.num_envs
+    max_iters   = args.max_iterations
+
+    if args.env_file is not None:
+        if not os.path.exists(args.env_file):
+            raise FileNotFoundError(f"--env_file not found: {args.env_file}")
+        training_section = _apply_train_env(args.env_file, env_cfg, obs_cfg, reward_cfg, command_cfg)
+        resume_ckpt = training_section.get("resume_ckpt", None)
+        num_envs    = training_section.get("num_envs",       num_envs)
+        max_iters   = training_section.get("max_iterations", max_iters)
+        print(f"[train] env_file loaded: {args.env_file}")
+        if resume_ckpt:
+            print(f"[train] resume_ckpt   : {resume_ckpt}")
+        print(f"[train] num_envs      : {num_envs}")
+        print(f"[train] max_iterations: {max_iters}")
+
+    # ------------------------------------------------------------------
+    # Prepare log directory
+    # When resuming, keep existing log_dir so previous checkpoints survive.
+    # ------------------------------------------------------------------
+    if resume_ckpt is None:
+        if os.path.exists(log_dir):
+            shutil.rmtree(log_dir)
     os.makedirs(log_dir, exist_ok=True)
 
     with open(f"{log_dir}/cfgs.pkl", "wb") as f:
@@ -161,12 +234,18 @@ def main():
     gs.init(backend=gs.gpu, precision="32", logging_level="warning", seed=args.seed, performance_mode=True)
 
     env = Go1Env(
-        num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg
+        num_envs=num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg
     )
 
     runner = OnPolicyRunner(env, train_cfg, log_dir, device=gs.device)
 
-    runner.learn(num_learning_iterations=args.max_iterations, init_at_random_ep_len=True)
+    if resume_ckpt is not None:
+        if not os.path.exists(resume_ckpt):
+            raise FileNotFoundError(f"resume_ckpt not found: {resume_ckpt}")
+        runner.load(resume_ckpt)
+        print(f"[train] Resumed from: {resume_ckpt}")
+
+    runner.learn(num_learning_iterations=max_iters, init_at_random_ep_len=True)
 
 
 if __name__ == "__main__":

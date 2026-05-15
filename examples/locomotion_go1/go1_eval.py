@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import pickle
 from importlib import metadata
@@ -96,7 +97,7 @@ def main():
                 Keybind("quit_eval", Key.ESCAPE, KeyAction.RELEASE, callback=stop_program),
             )
 
-            runner = OnPolicyRunner(env, train_cfg, log_dir, device=gs.device)
+            runner = OnPolicyRunner(env, copy.deepcopy(train_cfg), log_dir, device=gs.device)
             runner.load(os.path.join(log_dir, f"model_{args.ckpt}.pt"))
             policy = runner.get_inference_policy(device=gs.device)
             obs_dict = env.reset()

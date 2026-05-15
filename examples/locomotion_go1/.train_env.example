@@ -1,0 +1,67 @@
+# Go1 training env file (TOML format)
+#
+# Usage:
+#   python examples/locomotion_go1/go1_train.py \
+#       -e go1-walking-retrain \
+#       --env_file examples/locomotion_go1/.train_env.example
+#
+# Only keys you specify here are overridden; everything else keeps
+# the default value from get_cfgs() in go1_train.py.
+# Copy this file, rename it (e.g. .train_env), and edit as needed.
+
+# ---------------------------------------------------------------------------
+# [training] — controls the runner, not the simulator
+#   resume_ckpt    : path to model_N.pt to continue training from
+#                    when set, the existing log_dir is NOT deleted
+#   num_envs       : overrides -B / --num_envs CLI argument
+#   max_iterations : overrides --max_iterations CLI argument
+# ---------------------------------------------------------------------------
+[training]
+resume_ckpt    = "logs/go1-walking/model_100.pt"
+num_envs       = 4096
+max_iterations = 200
+
+# ---------------------------------------------------------------------------
+# [env_cfg] — simulator / robot parameters
+#   Any key from get_cfgs() env_cfg can be overridden here.
+#   Typical use: adjust PD gains to match real-robot measurements.
+# ---------------------------------------------------------------------------
+[env_cfg]
+kp = 20.0   # [N·m/rad]  set from analyze_logs.py output
+kd = 0.5    # [N·m·s/rad]
+
+# Termination thresholds (degrees)
+termination_if_roll_greater_than  = 10
+termination_if_pitch_greater_than = 10
+
+# ---------------------------------------------------------------------------
+# [obs_scales] — observation normalisation scales
+#   Maps to obs_cfg["obs_scales"].
+# ---------------------------------------------------------------------------
+[obs_scales]
+lin_vel = 2.0
+ang_vel = 0.25
+dof_pos = 1.0
+dof_vel = 0.05
+
+# ---------------------------------------------------------------------------
+# [reward_scales] — per-term reward weights
+#   Maps to reward_cfg["reward_scales"].
+#   Positive = reward, negative = penalty.
+# ---------------------------------------------------------------------------
+[reward_scales]
+tracking_lin_vel  =  1.0
+tracking_ang_vel  =  0.2
+lin_vel_z         = -1.0
+base_height       = -50.0
+action_rate       = -0.005
+similar_to_default = -0.1
+
+# ---------------------------------------------------------------------------
+# [command_cfg] — velocity command sampling ranges
+#   Narrow the ranges to speeds observed in real-robot deployment logs.
+# ---------------------------------------------------------------------------
+[command_cfg]
+lin_vel_x_range = [0.3, 0.5]
+lin_vel_y_range = [0.0, 0.0]
+ang_vel_range   = [0.0, 0.0]
