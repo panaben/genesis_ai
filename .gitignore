@@ -154,3 +154,6 @@ uv.lock
 
 # alarm.yml outputs
 outputs/
+
+# no need
+old_no_need/
