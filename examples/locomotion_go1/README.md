@@ -69,14 +69,68 @@ python examples/locomotion_go1/go1_eval.py \
 
 > **詳細手順は [deploy/README.md](deploy/README.md) を参照。**
 
+### 前提
+
+- **Linux のみ**（`robot_interface.so` は Linux 専用）
+- Ethernet で Go1 と同一サブネット（`192.168.123.x`）に接続済み
+- Go1 を **DAMPING モード**（リモコン: L2 + A）にしてからスクリプトを起動
+
+### ⚠️ 安全上の注意
+
+> **怠ると機体の転倒・破損につながります。**
+
+#### スタートアップ時の体勢
+
+スクリプト起動直後、現在の関節角度から立ち姿勢まで **2秒かけて補間移動**します。
+この間に脚が予期しない方向へ動くため、以下のいずれかの状態でスタートしてください。
+
+| 方法 | 詳細 |
+|---|---|
+| **吊るす（推奨）** | フレームにハーネス等を掛けて脚が床に届かない状態にする |
+| **平地に置く** | 平坦な床に置き、人が横で支えられる体制を取る |
+
+#### 立ち上がり確認後にポリシーを開始する
+
+スクリプトは Enter キーを2回待ちます。**脚が立ち姿勢に整ったことを目視確認してから** 2回目の Enter を押してください。
+
+```
+[deploy] *** Verify the robot is suspended or on flat ground. ***
+         Press Enter to begin STANDUP sequence ...    ← 1回目: 吊るした状態で押す
+
+[deploy] Standing up (2.0 s, 100 steps) ...
+[deploy] Standup complete.
+[deploy] >>> Press Enter to start WALKING policy ...  ← 2回目: 姿勢確認後に押す
+```
+
+#### 緊急停止
+
+| トリガー | 動作 |
+|---|---|
+| `Ctrl + C` | 即時停止 → ダンピングモードへ移行 |
+| roll > ±30° または pitch > ±30° | 自動緊急停止 → ダンピングモードへ移行 |
+
+停止後は全モータが `Kp=0, Kd=2` のダンピング状態になります（受動的に脱力）。
+
+### 実行コマンド
+
 ```bash
-# Linux 環境・Ethernet 接続済みの状態で実行
+# Linux 環境・Ethernet 接続済みの状態で実行（sudo 必要）
 sudo python examples/locomotion_go1/deploy/go1_deploy.py \
     --model_dir logs/go1-walking \
     --ckpt 100 \
     --vx 0.3 --vy 0.0 --wz 0.0 \
     --log
 ```
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--model_dir` | `logs/go1-walking` | `cfgs.pkl` と `model_N.pt` があるディレクトリ |
+| `--ckpt` | `100` | チェックポイント番号 |
+| `--vx` | `0.3` | 前進速度指令 [m/s] |
+| `--vy` | `0.0` | 横方向速度指令 [m/s] |
+| `--wz` | `0.0` | ヨー角速度指令 [rad/s] |
+| `--log` | （無効） | CSV ログを有効化 |
+| `--log_dir` | `deploy_logs` | ログ出力先ディレクトリ |
 
 `--log` を付けると `deploy_logs/run_<timestamp>.csv` が生成される。これが STEP 4 の入力。
 
