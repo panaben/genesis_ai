@@ -12,4 +12,4 @@
 	url = https://github.com/panaben/unitree_legged_sdk.git
 [submodule "third_party/openarm_mujoco"]
 	path = third_party/openarm_mujoco
-	url = https://github.com/enactic/openarm_mujoco.git
+	url = https://github.com/panaben/openarm_mujoco.git
