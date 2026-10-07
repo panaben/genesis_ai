@@ -20,8 +20,8 @@ Genesis でポリシーを学習し、実機で動かし、実機データを使
 
 ## STEP 1: シミュレーター学習
 
+リポジトリルートから実行
 ```bash
-# リポジトリルートから実行
 python examples/locomotion_go1/go1_train.py \
     -e go1-walking \
     -B 4096 \

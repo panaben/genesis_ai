@@ -158,3 +158,4 @@ outputs/
 # no need
 old_no_need/
 videos/
+deploy_logs/

@@ -3,8 +3,9 @@ Non-blocking CSV logger for Go1 real-robot data collection.
 
 Writes rows from a background thread so the 50 Hz control loop is never blocked.
 Each row captures all data needed for System Identification:
-  timestamp, dof_pos[12], dof_vel[12], tau_est[12],
-  imu_gyro[3], imu_quat[4], commands[3], actions[12]
+  timestamp, state_tick, dof_pos[12], dof_vel[12], tau_est[12],
+  imu_gyro[3], imu_quat[4], commands[3], actions[12],
+  policy_target_dof_pos[12], sent_target_dof_pos[12]
 
 Usage:
     logger = DataLogger("deploy_logs/run_001.csv")
@@ -19,9 +20,9 @@ from pathlib import Path
 
 import numpy as np
 
-# CSV column header (56 columns total)
+# CSV column header (81 columns total)
 _HEADER: list[str] = (
-    ["timestamp"]
+    ["timestamp", "state_tick"]
     + [f"dof_pos_{i}" for i in range(12)]
     + [f"dof_vel_{i}" for i in range(12)]
     + [f"tau_est_{i}" for i in range(12)]
@@ -29,6 +30,8 @@ _HEADER: list[str] = (
     + [f"imu_quat_{i}" for i in range(4)]  # [w, x, y, z]
     + [f"cmd_{i}" for i in range(3)]        # [vx, vy, wz]
     + [f"action_{i}" for i in range(12)]
+    + [f"policy_target_dof_pos_{i}" for i in range(12)]
+    + [f"sent_target_dof_pos_{i}" for i in range(12)]
 )
 
 
@@ -62,6 +65,7 @@ class DataLogger:
     def log(
         self,
         timestamp: float,
+        state_tick: int,
         dof_pos: np.ndarray,
         dof_vel: np.ndarray,
         tau_est: np.ndarray,
@@ -69,14 +73,21 @@ class DataLogger:
         imu_quat: np.ndarray,
         commands: np.ndarray,
         actions: np.ndarray,
+        policy_target_dof_pos: np.ndarray | None = None,
+        sent_target_dof_pos: np.ndarray | None = None,
     ) -> None:
         """Enqueue one row.  Returns immediately (non-blocking).
 
         If the queue is full the row is silently dropped to protect the
         control loop timing.
         """
+        if policy_target_dof_pos is None:
+            policy_target_dof_pos = np.full(12, np.nan, dtype=np.float32)
+        if sent_target_dof_pos is None:
+            sent_target_dof_pos = np.full(12, np.nan, dtype=np.float32)
+
         row = (
-            [timestamp]
+            [timestamp, int(state_tick)]
             + dof_pos.tolist()
             + dof_vel.tolist()
             + tau_est.tolist()
@@ -84,6 +95,8 @@ class DataLogger:
             + imu_quat.tolist()
             + commands.tolist()
             + actions.tolist()
+            + policy_target_dof_pos.tolist()
+            + sent_target_dof_pos.tolist()
         )
         try:
             self._queue.put_nowait(row)
